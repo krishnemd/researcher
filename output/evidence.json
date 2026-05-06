@@ -1,0 +1,86 @@
+{
+  "evidence": [
+    {
+      "source_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC6027933/",
+      "title": "Health Benefits of Exercise - PMC",
+      "content_snippet": "",
+      "extracted_claims": [
+        "Lifelong exercise is associated with a longer health span, delaying the onset of 40 chronic conditions/diseases.",
+        "Molecular mechanisms are being learned regarding how exercise sustains and improves health."
+      ],
+      "confidence_score": 1.0,
+      "timestamp": "2026-05-06T21:57:31.135820",
+      "search_query": "benifits of exercise"
+    },
+    {
+      "source_url": "https://www.sciencenewstoday.org/15-science-backed-benefits-of-daily-exercise",
+      "title": "15 Science-Backed Benefits of Daily Exercise",
+      "content_snippet": "",
+      "extracted_claims": [
+        "There are fifteen science-backed benefits associated with daily exercise."
+      ],
+      "confidence_score": 0.7,
+      "timestamp": "2026-05-06T21:57:31.139296",
+      "search_query": "benifits of exercise"
+    },
+    {
+      "source_url": "https://stanmed.stanford.edu/exercise-whole-body-benefits/",
+      "title": "Exercise induces whole-body health benefits",
+      "content_snippet": "",
+      "extracted_claims": [
+        "Latest research confirms the benefits of sitting less and moving more.",
+        "Movement is emphasized as important for the body's health."
+      ],
+      "confidence_score": 0.9,
+      "timestamp": "2026-05-06T21:57:31.140126",
+      "search_query": "benifits of exercise"
+    },
+    {
+      "source_url": "https://www.health.harvard.edu/topics/exercise-and-fitness",
+      "title": "Importance of Exercise: Benefits & Recommended Types - Harvard Health",
+      "content_snippet": "",
+      "extracted_claims": [
+        "Physical activity is categorized into four broad types (e.g., aerobic exercise).",
+        "Aerobic exercise plays a role in increasing heart rate."
+      ],
+      "confidence_score": 1.0,
+      "timestamp": "2026-05-06T21:57:31.140832",
+      "search_query": "benifits of exercise"
+    },
+    {
+      "source_url": "https://www.cdc.gov/physical-activity-basics/benefits/index.html",
+      "title": "Benefits of Physical Activity | Physical Activity Basics | CDC",
+      "content_snippet": "",
+      "extracted_claims": [
+        "Physical activity benefits brain health (improved thinking, reduced anxiety).",
+        "Physical activity helps keep thinking and judgment skills sharp.",
+        "Physical activity reduces the risk of depression."
+      ],
+      "confidence_score": 1.0,
+      "timestamp": "2026-05-06T21:57:31.141537",
+      "search_query": "benifits of exercise"
+    },
+    {
+      "source_url": "https://www.mayoclinic.org/healthy-lifestyle/fitness/in-depth/exercise/art-20048389",
+      "title": "Health Benefits of Exercise and Physical Activity",
+      "content_snippet": "",
+      "extracted_claims": [
+        "Regular exercise and physical activity offer health benefits.",
+        "It is important to get more active throughout the day to gain these benefits."
+      ],
+      "confidence_score": 1.0,
+      "timestamp": "2026-05-06T21:57:31.142241",
+      "search_query": "benifits of exercise"
+    }
+  ],
+  "research_gaps": [],
+  "visited_urls": [
+    "https://pmc.ncbi.nlm.nih.gov/articles/PMC6027933/",
+    "https://stanmed.stanford.edu/exercise-whole-body-benefits/",
+    "https://www.cdc.gov/physical-activity-basics/benefits/index.html",
+    "https://www.health.harvard.edu/topics/exercise-and-fitness",
+    "https://www.healthline.com/nutrition/10-benefits-of-exercise",
+    "https://www.mayoclinic.org/healthy-lifestyle/fitness/in-depth/exercise/art-20048389",
+    "https://www.sciencenewstoday.org/15-science-backed-benefits-of-daily-exercise"
+  ]
+}

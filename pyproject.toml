@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "researcher"
+version = "0.1.0"
+description = "A time-budgeted multi-agent research system using Strands Agents with local Ollama"
+requires-python = ">=3.10"
+dependencies = [
+    "strands-agents>=1.0.0",
+    "strands-agents-tools>=0.1.0",
+    "ddgs>=7.0.0",
+    "beautifulsoup4>=4.12.0",
+    "markdownify>=0.14.0",
+    "click>=8.1.0",
+    "requests>=2.31.0",
+    "ollama>=0.4.0",
+]
+
+[project.scripts]
+researcher = "researcher.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/researcher"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/researcher"]
