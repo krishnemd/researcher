@@ -54,7 +54,7 @@ flowchart TB
 
     subgraph Output["OUTPUT ARTIFACTS"]
         paper["research_TOPIC_TIMESTAMP.md"]
-        graph["graph_TOPIC_TIMESTAMP.json"]
+        graphFile["graph_TOPIC_TIMESTAMP.json"]
         evidence["evidence.json"]
         metadata["run_TIMESTAMP.json"]
     end
