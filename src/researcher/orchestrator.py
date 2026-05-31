@@ -1,9 +1,10 @@
 """Orchestrator - two-phase research system with parallel agents.
 
-Phase 1 (time-bounded): Research fleet searches + analyzes until time runs out.
+Phase 1 (time-bounded): PhD-style cognitive loop — decompose → search → extract → critique → repeat.
 Phase 2 (unbounded): Summarizer fleet builds a tree of summaries from all evidence.
 """
 
+import os
 import re
 import time
 import logging
@@ -16,6 +17,18 @@ from researcher.agents.search import create_search_agent
 from researcher.agents.analysis import create_analysis_agent
 from researcher.agents.synthesis import create_leaf_agent, create_branch_agent, create_root_agent
 from researcher.agents.factcheck import create_factcheck_agent
+from researcher.agents.decompose import create_decompose_agent
+from researcher.agents.extract import create_extract_agent
+from researcher.agents.critic import create_critic_agent
+from researcher.agents.validation import (
+    parse_agent_output,
+    DecomposerOutput,
+    ExtractorOutput,
+    CriticOutput,
+)
+from researcher.knowledge.schema import Question, Hypothesis, Claim, Relationship, RelationType
+from researcher.knowledge.gaps import detect_gaps
+from researcher.knowledge.export import export_graph_json
 from researcher.tools.web_fetch import set_visited_urls
 from researcher.paper import generate_paper
 
@@ -25,13 +38,28 @@ logger = logging.getLogger(__name__)
 class Orchestrator:
     """Two-phase orchestrator: research fleet → summarizer fleet."""
 
-    def __init__(self, topic: str, time_budget_seconds: int, output_dir: str = "./output"):
+    def __init__(
+        self,
+        topic: str,
+        time_budget_seconds: int,
+        output_dir: str = "./output",
+        resume: bool = False,
+        interactive: bool = False,
+    ):
         self.topic = topic
         self.time_budget = time_budget_seconds
         self.output_dir = output_dir
+        self.interactive = interactive
         self.store = EvidenceStore(output_dir)
         self.start_time: Optional[float] = None
         self.iteration = 0
+
+        # Resume from prior state if requested
+        if resume:
+            self.store.load()
+            self.store.graph.load()
+            logger.info(f"Resumed: {len(self.store.evidence)} evidence, "
+                        f"{self.store.graph.node_count} graph nodes")
 
     @property
     def elapsed(self) -> float:
@@ -58,20 +86,25 @@ class Orchestrator:
         set_visited_urls(self.store.visited_urls)
 
         # ═══════════════════════════════════════════════════════
-        # PHASE 1: Research Fleet (time-bounded)
+        # PHASE 1: Research Loop (time-bounded, PhD-style)
         # ═══════════════════════════════════════════════════════
-        logger.info(f"╔══ PHASE 1: RESEARCH FLEET ══╗")
+        logger.info(f"╔══ PHASE 1: RESEARCH LOOP ══╗")
         logger.info(f"  Topic: {self.topic}")
         logger.info(f"  Time budget: {self.time_budget}s ({self.time_budget // 60}m)")
 
+        # Step 0: Decompose topic into sub-questions
+        self._decompose_topic()
+        self._interactive_after_decompose()
+
         while not self.should_stop_searching():
             self.iteration += 1
+            graph = self.store.graph
             logger.info(
                 f"\n┌─ Iteration {self.iteration} │ "
                 f"Elapsed: {self.elapsed:.0f}s │ "
                 f"Remaining: {self.remaining:.0f}s │ "
                 f"Evidence: {len(self.store.evidence)} │ "
-                f"URLs: {len(self.store.visited_urls)}"
+                f"Graph: {graph.node_count} nodes, {graph.edge_count} edges"
             )
 
             try:
@@ -83,11 +116,28 @@ class Orchestrator:
             if self.should_stop_searching():
                 break
 
+            # Interactive check after iteration
+            user_decision = self._interactive_after_iteration()
+            if user_decision is False:
+                logger.info(f"  ╰─ User requested stop.")
+                break
+
+            # Run critic to decide whether to continue
+            if self.iteration > 1:
+                should_continue = self._run_critic()
+                if not should_continue:
+                    logger.info(f"  ╰─ Critic says: sufficient coverage. Stopping early.")
+                    break
+
         research_time = self.elapsed
         logger.info(f"\n╚══ PHASE 1 COMPLETE ══╝")
         logger.info(f"  Time used: {research_time:.0f}s")
         logger.info(f"  Evidence collected: {len(self.store.evidence)} sources")
         logger.info(f"  Claims extracted: {len(self.store.get_all_claims())}")
+        logger.info(f"  Graph: {graph.node_count} nodes, {graph.edge_count} edges")
+
+        # Propagate confidence based on graph relationships
+        self.store.graph.propagate_confidence()
 
         # ═══════════════════════════════════════════════════════
         # PHASE 2: Summarizer Fleet (unbounded — runs to completion)
@@ -98,10 +148,19 @@ class Orchestrator:
         tree = self._build_summary_tree()
         paper_path = generate_paper(self.topic, self.store, tree)
 
+        # Export knowledge graph
+        graph_path = export_graph_json(self.store.graph, self.topic, self.output_dir)
+        logger.info(f"  Graph exported to: {graph_path}")
+
         total_time = self.elapsed
         logger.info(f"\n╚══ PHASE 2 COMPLETE ══╝")
         logger.info(f"  Synthesis time: {total_time - research_time:.0f}s")
         logger.info(f"  Paper saved to: {paper_path}")
+
+        # Save run metadata
+        meta_path = self._save_run_metadata()
+        logger.info(f"  Metadata saved to: {meta_path}")
+
         return paper_path
 
     # ═══════════════════════════════════════════════════════════════
@@ -109,8 +168,17 @@ class Orchestrator:
     # ═══════════════════════════════════════════════════════════════
 
     def _run_research_iteration(self) -> None:
-        """Parallel search → parallel analysis+factcheck."""
-        search_prompts = self._generate_search_prompts()
+        """Parallel search → parallel analysis+factcheck.
+
+        Uses question-driven prompts from the graph when available,
+        falls back to broad search prompts otherwise.
+        """
+        # Use question-driven prompts if we have open questions
+        graph = self.store.graph
+        if graph.get_open_questions():
+            search_prompts = self._get_question_driven_prompts()
+        else:
+            search_prompts = self._generate_search_prompts()
 
         logger.info(f"  ├─ Launching {len(search_prompts)} search agents...")
         search_results = []
@@ -399,3 +467,321 @@ class Orchestrator:
             gaps = re.findall(r"-\s*(.+)", gaps_section.group(1))
             for gap in gaps:
                 self.store.add_gap(gap.strip())
+
+    # ═══════════════════════════════════════════════════════════════
+    # PhD Cognitive Loop — new methods
+    # ═══════════════════════════════════════════════════════════════
+
+    def _decompose_topic(self) -> None:
+        """Step 0: Break topic into sub-questions using the decomposer agent."""
+        logger.info(f"  ├─ Decomposing topic into sub-questions...")
+
+        graph = self.store.graph
+        # Skip if questions already exist (e.g., resume mode)
+        if graph.get_open_questions():
+            logger.info(f"  │  Using {len(graph.get_open_questions())} existing questions")
+            return
+
+        prior_knowledge = self.store.graph.get_prompt_summary() if self.store.evidence else ""
+        prompt = f"Research topic: {self.topic}"
+        if prior_knowledge:
+            prompt += f"\n\nPrior knowledge:\n{prior_knowledge}"
+
+        try:
+            agent = create_decompose_agent()
+            raw = str(agent(prompt))
+            result = parse_agent_output(raw, DecomposerOutput)
+
+            if result:
+                for sq in result.questions:
+                    q = Question(text=sq.text)
+                    graph.add_question(q)
+                    logger.info(f"  │  ? {sq.text}")
+
+                for hyp in result.hypotheses:
+                    if hyp.question_index < len(result.questions):
+                        # Link hypothesis to the corresponding question
+                        q_list = list(graph.questions.values())
+                        if hyp.question_index < len(q_list):
+                            h = Hypothesis(text=hyp.text, question_id=q_list[hyp.question_index].id)
+                            graph.add_hypothesis(h)
+            else:
+                # Fallback: create a single broad question
+                graph.add_question(Question(text=f"What are the key aspects of {self.topic}?"))
+                logger.warning(f"  │  Decompose failed, using fallback question")
+
+        except Exception as e:
+            logger.error(f"  │  Decompose error: {e}")
+            graph.add_question(Question(text=f"What are the key aspects of {self.topic}?"))
+
+        logger.info(f"  │  {len(graph.get_open_questions())} questions ready")
+
+    def _run_critic(self) -> bool:
+        """Run the critic agent to evaluate progress and decide next steps.
+
+        Returns True if research should continue, False to stop.
+        """
+        graph = self.store.graph
+        gap_report = detect_gaps(graph)
+
+        # If no gaps at all, stop
+        if not gap_report.has_gaps:
+            return False
+
+        prompt = (
+            f"Research topic: {self.topic}\n\n"
+            f"Current knowledge state:\n{graph.get_prompt_summary()}\n\n"
+            f"Gap analysis:\n{gap_report.summary()}\n\n"
+            f"Iterations so far: {self.iteration}\n"
+            f"Time remaining: {self.remaining:.0f}s\n\n"
+            f"Should we continue researching or is coverage sufficient?"
+        )
+
+        try:
+            agent = create_critic_agent()
+            raw = str(agent(prompt))
+            result = parse_agent_output(raw, CriticOutput)
+
+            if result:
+                # Add new questions from critic
+                for q_text in result.new_questions:
+                    graph.add_question(Question(text=q_text))
+                    logger.info(f"  │  + New question: {q_text[:60]}")
+
+                # Add gaps from critic as research gaps
+                for contradiction in result.contradictions:
+                    self.store.add_gap(f"Contradiction: {contradiction}")
+
+                logger.info(f"  │  Critic: {'continue' if result.should_continue else 'stop'} — {result.reasoning[:80]}")
+                return result.should_continue
+            else:
+                # If we can't parse critic output, continue if gaps exist
+                return gap_report.has_gaps
+
+        except Exception as e:
+            logger.error(f"  │  Critic error: {e}")
+            return gap_report.has_gaps
+
+    def _get_question_driven_prompts(self) -> list[str]:
+        """Generate search prompts driven by open questions from the graph."""
+        graph = self.store.graph
+        open_questions = graph.get_open_questions()
+
+        if not open_questions:
+            # Fall back to existing prompt generation
+            return self._generate_search_prompts()
+
+        visited_urls = self.store.get_visited_urls_context()
+        prompts = []
+
+        for q in open_questions[:3]:  # Max 3 parallel searches
+            prompt = (
+                f"Research topic: {self.topic}\n\n"
+                f"SPECIFIC QUESTION to answer: {q.text}\n\n"
+                f"{visited_urls}\n\n"
+                f"Search specifically to answer the above question. "
+                f"Try 2 targeted queries. Fetch 1-2 new pages."
+            )
+            prompts.append(prompt)
+
+        return prompts
+
+    # ═══════════════════════════════════════════════════════════════
+    # Interactive Mode
+    # ═══════════════════════════════════════════════════════════════
+
+    def _interactive_pause(self, phase: str, context: str) -> str:
+        """Pause for user input in interactive mode.
+
+        Returns user's response or 'auto' if not in interactive mode.
+        """
+        if not self.interactive:
+            return "auto"
+
+        print(f"\n{'─' * 60}")
+        print(f"  [{phase}] {context}")
+        print(f"{'─' * 60}")
+        try:
+            response = input("  Your input (or 'auto' to let agent decide): ").strip()
+            return response if response else "auto"
+        except (EOFError, KeyboardInterrupt):
+            return "auto"
+
+    def _interactive_after_decompose(self) -> None:
+        """Ask user about sub-questions after decomposition."""
+        if not self.interactive:
+            return
+
+        graph = self.store.graph
+        questions = graph.get_open_questions()
+        context = "Sub-questions I plan to investigate:\n"
+        for i, q in enumerate(questions, 1):
+            context += f"    {i}. {q.text}\n"
+        context += "\n  Add/remove/reprioritize? (or 'auto' to proceed)"
+
+        response = self._interactive_pause("DECOMPOSE", context)
+        if response and response != "auto":
+            # Add user's question as a new research question
+            graph.add_question(Question(text=response))
+            logger.info(f"  │  + User added question: {response}")
+
+    def _interactive_after_iteration(self) -> Optional[bool]:
+        """Ask user for direction after each iteration.
+
+        Returns None for auto, True to continue, False to stop.
+        """
+        if not self.interactive:
+            return None
+
+        graph = self.store.graph
+        context = (
+            f"Progress: {len(self.store.evidence)} sources, "
+            f"{len(graph.claims)} claims, {len(graph.get_open_questions())} open questions\n"
+            f"  Time remaining: {self.remaining:.0f}s\n\n"
+            f"  Options: 'continue', 'stop', 'deeper on [topic]', or 'auto'"
+        )
+
+        response = self._interactive_pause("ITERATION", context)
+        if response == "stop":
+            return False
+        elif response == "continue" or response == "auto":
+            return None
+        elif response.startswith("deeper on "):
+            deeper_topic = response[len("deeper on "):]
+            graph.add_question(Question(text=f"What specifically about {deeper_topic}?"))
+            return True
+        return None
+
+    # ═══════════════════════════════════════════════════════════════
+    # Run Metadata
+    # ═══════════════════════════════════════════════════════════════
+
+    def _save_run_metadata(self) -> str:
+        """Save run metadata to a JSON file."""
+        import json
+        from datetime import datetime
+
+        metadata = {
+            "topic": self.topic,
+            "model": "gemma4:e2b",
+            "time_budget_seconds": self.time_budget,
+            "actual_time_seconds": round(self.elapsed, 1),
+            "iterations": self.iteration,
+            "sources_collected": len(self.store.evidence),
+            "claims_extracted": len(self.store.get_all_claims()),
+            "graph_nodes": self.store.graph.node_count,
+            "graph_edges": self.store.graph.edge_count,
+            "open_questions": len(self.store.graph.get_open_questions()),
+            "interactive_mode": self.interactive,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        filepath = os.path.join(
+            self.output_dir,
+            f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+        )
+        os.makedirs(self.output_dir, exist_ok=True)
+        with open(filepath, "w") as f:
+            json.dump(metadata, f, indent=2)
+
+        return filepath
+
+    # ═══════════════════════════════════════════════════════════════
+    # Interactive Mode
+    # ═══════════════════════════════════════════════════════════════
+
+    def _interactive_pause(self, phase: str, context: str) -> str:
+        """Pause for user input in interactive mode.
+
+        Returns user's response or 'auto' if not in interactive mode.
+        """
+        if not self.interactive:
+            return "auto"
+
+        print(f"\n{'─' * 60}")
+        print(f"  [{phase}] {context}")
+        print(f"{'─' * 60}")
+        try:
+            response = input("  Your input (or 'auto' to let agent decide): ").strip()
+            return response if response else "auto"
+        except (EOFError, KeyboardInterrupt):
+            return "auto"
+
+    def _interactive_after_decompose(self) -> None:
+        """Ask user about sub-questions after decomposition."""
+        if not self.interactive:
+            return
+
+        graph = self.store.graph
+        questions = graph.get_open_questions()
+        context = "Sub-questions I plan to investigate:\n"
+        for i, q in enumerate(questions, 1):
+            context += f"    {i}. {q.text}\n"
+        context += "\n  Add/remove/reprioritize? (or 'auto' to proceed)"
+
+        response = self._interactive_pause("DECOMPOSE", context)
+        if response and response != "auto":
+            # Add user's question as a new research question
+            graph.add_question(Question(text=response))
+            logger.info(f"  │  + User added question: {response}")
+
+    def _interactive_after_iteration(self) -> Optional[bool]:
+        """Ask user for direction after each iteration.
+
+        Returns None for auto, True to continue, False to stop.
+        """
+        if not self.interactive:
+            return None
+
+        graph = self.store.graph
+        context = (
+            f"Progress: {len(self.store.evidence)} sources, "
+            f"{len(graph.claims)} claims, {len(graph.get_open_questions())} open questions\n"
+            f"  Time remaining: {self.remaining:.0f}s\n\n"
+            f"  Options: 'continue', 'stop', 'deeper on [topic]', or 'auto'"
+        )
+
+        response = self._interactive_pause("ITERATION", context)
+        if response == "stop":
+            return False
+        elif response == "continue" or response == "auto":
+            return None
+        elif response.startswith("deeper on "):
+            deeper_topic = response[len("deeper on "):]
+            graph.add_question(Question(text=f"What specifically about {deeper_topic}?"))
+            return True
+        return None
+
+    # ═══════════════════════════════════════════════════════════════
+    # Run Metadata
+    # ═══════════════════════════════════════════════════════════════
+
+    def _save_run_metadata(self) -> str:
+        """Save run metadata to a JSON file."""
+        import json
+        from datetime import datetime
+
+        metadata = {
+            "topic": self.topic,
+            "model": "gemma4:e2b",
+            "time_budget_seconds": self.time_budget,
+            "actual_time_seconds": round(self.elapsed, 1),
+            "iterations": self.iteration,
+            "sources_collected": len(self.store.evidence),
+            "claims_extracted": len(self.store.get_all_claims()),
+            "graph_nodes": self.store.graph.node_count,
+            "graph_edges": self.store.graph.edge_count,
+            "open_questions": len(self.store.graph.get_open_questions()),
+            "interactive_mode": self.interactive,
+            "timestamp": datetime.now().isoformat(),
+        }
+
+        filepath = os.path.join(
+            self.output_dir,
+            f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+        )
+        os.makedirs(self.output_dir, exist_ok=True)
+        with open(filepath, "w") as f:
+            json.dump(metadata, f, indent=2)
+
+        return filepath

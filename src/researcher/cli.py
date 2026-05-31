@@ -12,6 +12,13 @@ from researcher.orchestrator import Orchestrator
 # Bypass tool consent prompts for automated operation
 os.environ["BYPASS_TOOL_CONSENT"] = "true"
 
+# Depth presets: name → time in seconds
+DEPTH_PRESETS = {
+    "quick": 5 * 60,
+    "standard": 30 * 60,
+    "deep": 2 * 60 * 60,
+}
+
 
 def parse_time(time_str: str) -> int:
     """Parse a time string like '30m', '1h', '90s' into seconds."""
@@ -36,14 +43,17 @@ def parse_time(time_str: str) -> int:
 
 @click.command()
 @click.option("--topic", "-t", required=True, help="Research topic to investigate")
-@click.option("--time", "-T", "time_budget", required=True, help="Time budget (e.g., 30m, 1h, 90s)")
+@click.option("--time", "-T", "time_budget", default=None, help="Time budget (e.g., 30m, 1h, 90s)")
+@click.option("--depth", "-d", type=click.Choice(["quick", "standard", "deep"]), default=None, help="Depth preset (quick=5m, standard=30m, deep=2h)")
 @click.option("--output", "-o", default="./output", help="Output directory for the paper")
+@click.option("--resume", "-r", is_flag=True, help="Resume from prior graph in output directory")
+@click.option("--interactive", "-i", is_flag=True, help="Interactive mode: pause at decision points for user input")
 @click.option("--verbose", "-v", is_flag=True, help="Enable verbose/debug logging")
-def main(topic: str, time_budget: str, output: str, verbose: bool) -> None:
+def main(topic: str, time_budget: str, depth: str, output: str, resume: bool, interactive: bool, verbose: bool) -> None:
     """Research Agent - Automated evidence-based research paper generation.
 
     Uses local Ollama (gemma4:e2b) with DuckDuckGo search to research a topic
-    within a time budget, then produces a structured Markdown paper.
+    within a time budget, then produces a structured Markdown paper + knowledge graph.
     """
     # Configure logging
     log_level = logging.DEBUG if verbose else logging.INFO
@@ -59,17 +69,26 @@ def main(topic: str, time_budget: str, output: str, verbose: bool) -> None:
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("strands").setLevel(logging.WARNING if not verbose else logging.INFO)
 
-    # Parse time budget
-    try:
-        budget_seconds = parse_time(time_budget)
-    except click.BadParameter as e:
-        click.echo(f"Error: {e}", err=True)
+    # Resolve time budget from --time or --depth
+    if time_budget:
+        try:
+            budget_seconds = parse_time(time_budget)
+        except click.BadParameter as e:
+            click.echo(f"Error: {e}", err=True)
+            sys.exit(1)
+    elif depth:
+        budget_seconds = DEPTH_PRESETS[depth]
+    else:
+        click.echo("Error: Either --time or --depth is required.", err=True)
         sys.exit(1)
 
     click.echo(f"Research Agent Starting")
     click.echo(f"  Topic: {topic}")
-    click.echo(f"  Time budget: {time_budget} ({budget_seconds}s)")
+    click.echo(f"  Time budget: {budget_seconds}s ({budget_seconds // 60}m)")
     click.echo(f"  Output: {output}")
+    click.echo(f"  Mode: {'interactive' if interactive else 'one-shot'}")
+    if resume:
+        click.echo(f"  Resuming from prior state")
     click.echo()
 
     # Run the orchestrator
@@ -77,16 +96,23 @@ def main(topic: str, time_budget: str, output: str, verbose: bool) -> None:
         topic=topic,
         time_budget_seconds=budget_seconds,
         output_dir=output,
+        resume=resume,
+        interactive=interactive,
     )
 
     try:
         paper_path = orchestrator.run()
         click.echo(f"\nDone! Paper saved to: {paper_path}")
     except KeyboardInterrupt:
-        click.echo("\nInterrupted by user. Generating paper from evidence collected so far...")
+        click.echo("\nInterrupted by user. Saving current state...")
+        # Export graph even on interrupt
+        from researcher.knowledge.export import export_graph_json
+        graph_path = export_graph_json(orchestrator.store.graph, topic, output)
+        click.echo(f"  Graph saved to: {graph_path}")
+        # Generate partial paper
         from researcher.paper import generate_paper
         paper_path = generate_paper(topic, orchestrator.store)
-        click.echo(f"Partial paper saved to: {paper_path}")
+        click.echo(f"  Partial paper saved to: {paper_path}")
     except Exception as e:
         click.echo(f"\nFatal error: {e}", err=True)
         sys.exit(1)

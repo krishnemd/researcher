@@ -4,6 +4,10 @@ import json
 import os
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
+from typing import Optional
+
+from researcher.knowledge.graph import KnowledgeGraph
+from researcher.knowledge.schema import Source, Claim
 
 
 @dataclass
@@ -20,7 +24,10 @@ class Evidence:
 
 
 class EvidenceStore:
-    """Manages collected evidence with JSON persistence and URL deduplication."""
+    """Manages collected evidence with JSON persistence and URL deduplication.
+
+    Also maintains a KnowledgeGraph layer for structured representation.
+    """
 
     def __init__(self, output_dir: str = "./output"):
         self.output_dir = output_dir
@@ -28,7 +35,15 @@ class EvidenceStore:
         self.research_gaps: list[str] = []
         self.visited_urls: set[str] = set()
         self._filepath = os.path.join(output_dir, "evidence.json")
+        self._graph: Optional[KnowledgeGraph] = None
         os.makedirs(output_dir, exist_ok=True)
+
+    @property
+    def graph(self) -> KnowledgeGraph:
+        """Lazily initialize the knowledge graph."""
+        if self._graph is None:
+            self._graph = KnowledgeGraph(self.output_dir)
+        return self._graph
 
     def has_url(self, url: str) -> bool:
         """Check if a URL has already been researched."""
@@ -39,17 +54,35 @@ class EvidenceStore:
         self.visited_urls.add(url)
 
     def add(self, evidence: Evidence) -> None:
-        """Add evidence to the store (skips duplicate URLs)."""
+        """Add evidence to the store (skips duplicate URLs).
+
+        Also syncs data into the knowledge graph layer.
+        """
         if self.has_url(evidence.source_url):
             return
         self.visited_urls.add(evidence.source_url)
         self.evidence.append(evidence)
+
+        # Sync to knowledge graph
+        source = self.graph.add_source(Source(
+            url=evidence.source_url,
+            title=evidence.title,
+            credibility_score=evidence.confidence_score,
+        ))
+        for claim_text in evidence.extracted_claims:
+            self.graph.add_claim(Claim(
+                text=claim_text,
+                source_id=source.id,
+                confidence=evidence.confidence_score,
+            ))
+
         self._persist()
 
     def add_gap(self, gap: str) -> None:
         """Record a research gap to investigate."""
         if gap not in self.research_gaps:
             self.research_gaps.append(gap)
+            self._persist()
 
     def remove_gap(self, gap: str) -> None:
         """Remove a research gap that has been addressed."""
