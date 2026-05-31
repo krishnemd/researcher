@@ -1,10 +1,75 @@
 # Researcher
 
-A time-budgeted multi-agent research system that runs local LLM orchestration with Strands Agents and Ollama.
+A time-budgeted multi-agent research system that runs local LLM orchestration with Strands Agents and Ollama. It thinks like a PhD student: decompose → hypothesize → search → extract → critique → repeat.
 
 It performs two phases:
-- Phase 1: time-bounded search + analysis + fact-check loops
-- Phase 2: unbounded synthesis into a structured research markdown report
+- **Phase 1** (time-bounded): PhD-style cognitive loop — question-driven search, structured extraction, gap detection
+- **Phase 2** (unbounded): Graph-driven synthesis into a structured research paper + knowledge graph export
+
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph CLI["CLI (click)"]
+        flags["--topic  --time  --depth  --interactive  --resume  --output"]
+    end
+
+    CLI --> Orchestrator
+
+    subgraph Orchestrator["ORCHESTRATOR"]
+        subgraph Phase1["Phase 1: Research Loop (time-bounded)"]
+            Decomposer["Decomposer<br/>(sub-questions + hypotheses)"]
+            Search["Search Agents<br/>(parallel)"]
+            Extractor["Extractor<br/>(structured claims)"]
+            Critic["Critic<br/>(evaluate gaps)"]
+
+            Decomposer --> Search
+            Search --> Extractor
+            Extractor -->|graph update| Critic
+            Critic -->|new questions| Decomposer
+            Critic -->|should_continue = false| Phase2
+        end
+
+        subgraph Phase2["Phase 2: Synthesis (unbounded)"]
+            Outline["Outline Agent"]
+            SectionWriter["Section Writer<br/>(parallel)"]
+            Fallback["Fallback: tree-of-summaries<br/>(leaf → branch → root)"]
+
+            Outline --> SectionWriter
+            SectionWriter --> Paper1["Paper (.md)"]
+            Fallback --> Paper2["Paper (.md)"]
+        end
+    end
+
+    Orchestrator --> KG
+
+    subgraph KG["KNOWLEDGE GRAPH"]
+        direction LR
+        Nodes["Nodes: Source | Claim | Question | Hypothesis"]
+        Edges["Edges: supports | contradicts | answers | refines | cites"]
+        Features["• Confidence propagation<br/>• Gap detection<br/>• JSON persistence + d3/Neo4j export"]
+    end
+
+    KG --> Output
+
+    subgraph Output["OUTPUT ARTIFACTS"]
+        paper["research_&lt;topic&gt;_&lt;ts&gt;.md"]
+        graph["graph_&lt;topic&gt;_&lt;ts&gt;.json"]
+        evidence["evidence.json"]
+        metadata["run_&lt;ts&gt;.json"]
+    end
+
+    subgraph Tools["TOOLS & LLM"]
+        direction LR
+        ollama["Ollama (gemma4:e2b, local)"]
+        ddg["DuckDuckGo Search"]
+        fetch["Web Fetch (beautifulsoup4)"]
+        strands["Strands Agents"]
+    end
+
+    Phase1 -.-> Tools
+    Phase2 -.-> Tools
+```
 
 ## What To Do First
 
