@@ -53,10 +53,10 @@ flowchart TB
     KG --> Output
 
     subgraph Output["OUTPUT ARTIFACTS"]
-        paper["research_&lt;topic&gt;_&lt;ts&gt;.md"]
-        graph["graph_&lt;topic&gt;_&lt;ts&gt;.json"]
+        paper["research_TOPIC_TIMESTAMP.md"]
+        graph["graph_TOPIC_TIMESTAMP.json"]
         evidence["evidence.json"]
-        metadata["run_&lt;ts&gt;.json"]
+        metadata["run_TIMESTAMP.json"]
     end
 
     subgraph Tools["TOOLS & LLM"]
