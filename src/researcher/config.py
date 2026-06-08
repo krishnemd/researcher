@@ -1,7 +1,7 @@
 """Configuration for the research system."""
 
-import time
 import logging
+import time
 from typing import Optional
 
 from strands.models.ollama import OllamaModel

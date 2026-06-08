@@ -2,8 +2,8 @@
 
 from dataclasses import dataclass, field
 
-from researcher.knowledge.schema import Claim, Question, QuestionStatus
 from researcher.knowledge.graph import KnowledgeGraph
+from researcher.knowledge.schema import Claim, Question, QuestionStatus
 
 
 @dataclass

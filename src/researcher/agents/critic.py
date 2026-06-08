@@ -5,6 +5,7 @@ weaknesses and generating new questions.
 """
 
 from strands import Agent
+
 from researcher.config import get_json_model
 
 CRITIC_SYSTEM_PROMPT = """You are a research critic. You review the current state of knowledge and identify weaknesses.

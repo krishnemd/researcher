@@ -1,6 +1,7 @@
 """Outline Agent — generates paper structure from knowledge graph."""
 
 from strands import Agent
+
 from researcher.config import get_json_model
 
 OUTLINE_SYSTEM_PROMPT = """You are a research paper outliner. Given a knowledge summary with claims, questions, and relationships, you produce a logical paper outline.

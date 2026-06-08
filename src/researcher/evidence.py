@@ -2,12 +2,12 @@
 
 import json
 import os
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Optional
 
 from researcher.knowledge.graph import KnowledgeGraph
-from researcher.knowledge.schema import Source, Claim
+from researcher.knowledge.schema import Claim, Source
 
 
 @dataclass

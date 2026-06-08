@@ -82,13 +82,13 @@ def main(topic: str, time_budget: str, depth: str, output: str, resume: bool, in
         click.echo("Error: Either --time or --depth is required.", err=True)
         sys.exit(1)
 
-    click.echo(f"Research Agent Starting")
+    click.echo("Research Agent Starting")
     click.echo(f"  Topic: {topic}")
     click.echo(f"  Time budget: {budget_seconds}s ({budget_seconds // 60}m)")
     click.echo(f"  Output: {output}")
     click.echo(f"  Mode: {'interactive' if interactive else 'one-shot'}")
     if resume:
-        click.echo(f"  Resuming from prior state")
+        click.echo("  Resuming from prior state")
     click.echo()
 
     # Run the orchestrator

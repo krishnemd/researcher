@@ -1,6 +1,7 @@
 """Decomposer Agent — breaks a topic into sub-questions and hypotheses."""
 
 from strands import Agent
+
 from researcher.config import get_json_model
 
 DECOMPOSE_SYSTEM_PROMPT = """You are a PhD research advisor. Your job is to break a research topic into focused, investigable sub-questions.

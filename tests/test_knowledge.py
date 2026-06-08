@@ -2,19 +2,19 @@
 
 import tempfile
 
+from researcher.knowledge.export import export_graph_json
+from researcher.knowledge.gaps import detect_gaps
+from researcher.knowledge.graph import KnowledgeGraph
 from researcher.knowledge.schema import (
-    Source,
     Claim,
-    Question,
     Hypothesis,
+    HypothesisStatus,
+    Question,
+    QuestionStatus,
     Relationship,
     RelationType,
-    QuestionStatus,
-    HypothesisStatus,
+    Source,
 )
-from researcher.knowledge.graph import KnowledgeGraph
-from researcher.knowledge.gaps import detect_gaps, GapReport
-from researcher.knowledge.export import export_graph_json
 
 
 class TestKnowledgeGraphCRUD:

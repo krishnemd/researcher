@@ -1,6 +1,7 @@
 """Search Agent - generates queries and performs web searches."""
 
 from strands import Agent
+
 from researcher.config import get_model
 from researcher.tools.ddg_search import ddg_search
 from researcher.tools.web_fetch import web_fetch

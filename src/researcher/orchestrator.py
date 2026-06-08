@@ -4,33 +4,31 @@ Phase 1 (time-bounded): PhD-style cognitive loop — decompose → search → ex
 Phase 2 (unbounded): Summarizer fleet builds a tree of summaries from all evidence.
 """
 
+import logging
 import os
 import re
 import time
-import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
+from researcher.agents.analysis import create_analysis_agent
+from researcher.agents.critic import create_critic_agent
+from researcher.agents.decompose import create_decompose_agent
+from researcher.agents.factcheck import create_factcheck_agent
+from researcher.agents.search import create_search_agent
+from researcher.agents.synthesis import create_branch_agent, create_leaf_agent, create_root_agent
+from researcher.agents.validation import (
+    CriticOutput,
+    DecomposerOutput,
+    parse_agent_output,
+)
 from researcher.config import SHUTDOWN_THRESHOLD
 from researcher.evidence import Evidence, EvidenceStore
-from researcher.agents.search import create_search_agent
-from researcher.agents.analysis import create_analysis_agent
-from researcher.agents.synthesis import create_leaf_agent, create_branch_agent, create_root_agent
-from researcher.agents.factcheck import create_factcheck_agent
-from researcher.agents.decompose import create_decompose_agent
-from researcher.agents.extract import create_extract_agent
-from researcher.agents.critic import create_critic_agent
-from researcher.agents.validation import (
-    parse_agent_output,
-    DecomposerOutput,
-    ExtractorOutput,
-    CriticOutput,
-)
-from researcher.knowledge.schema import Question, Hypothesis, Claim, Relationship, RelationType
-from researcher.knowledge.gaps import detect_gaps
 from researcher.knowledge.export import export_graph_json
-from researcher.tools.web_fetch import set_visited_urls
+from researcher.knowledge.gaps import detect_gaps
+from researcher.knowledge.schema import Hypothesis, Question
 from researcher.paper import generate_paper
+from researcher.tools.web_fetch import set_visited_urls
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +86,7 @@ class Orchestrator:
         # ═══════════════════════════════════════════════════════
         # PHASE 1: Research Loop (time-bounded, PhD-style)
         # ═══════════════════════════════════════════════════════
-        logger.info(f"╔══ PHASE 1: RESEARCH LOOP ══╗")
+        logger.info("╔══ PHASE 1: RESEARCH LOOP ══╗")
         logger.info(f"  Topic: {self.topic}")
         logger.info(f"  Time budget: {self.time_budget}s ({self.time_budget // 60}m)")
 
@@ -119,18 +117,18 @@ class Orchestrator:
             # Interactive check after iteration
             user_decision = self._interactive_after_iteration()
             if user_decision is False:
-                logger.info(f"  ╰─ User requested stop.")
+                logger.info("  ╰─ User requested stop.")
                 break
 
             # Run critic to decide whether to continue
             if self.iteration > 1:
                 should_continue = self._run_critic()
                 if not should_continue:
-                    logger.info(f"  ╰─ Critic says: sufficient coverage. Stopping early.")
+                    logger.info("  ╰─ Critic says: sufficient coverage. Stopping early.")
                     break
 
         research_time = self.elapsed
-        logger.info(f"\n╚══ PHASE 1 COMPLETE ══╝")
+        logger.info("\n╚══ PHASE 1 COMPLETE ══╝")
         logger.info(f"  Time used: {research_time:.0f}s")
         logger.info(f"  Evidence collected: {len(self.store.evidence)} sources")
         logger.info(f"  Claims extracted: {len(self.store.get_all_claims())}")
@@ -142,8 +140,8 @@ class Orchestrator:
         # ═══════════════════════════════════════════════════════
         # PHASE 2: Summarizer Fleet (unbounded — runs to completion)
         # ═══════════════════════════════════════════════════════
-        logger.info(f"\n╔══ PHASE 2: SUMMARIZER FLEET ══╗")
-        logger.info(f"  Building tree of summaries...")
+        logger.info("\n╔══ PHASE 2: SUMMARIZER FLEET ══╗")
+        logger.info("  Building tree of summaries...")
 
         tree = self._build_summary_tree()
         paper_path = generate_paper(self.topic, self.store, tree)
@@ -153,7 +151,7 @@ class Orchestrator:
         logger.info(f"  Graph exported to: {graph_path}")
 
         total_time = self.elapsed
-        logger.info(f"\n╚══ PHASE 2 COMPLETE ══╝")
+        logger.info("\n╚══ PHASE 2 COMPLETE ══╝")
         logger.info(f"  Synthesis time: {total_time - research_time:.0f}s")
         logger.info(f"  Paper saved to: {paper_path}")
 
@@ -206,7 +204,7 @@ class Orchestrator:
 
         # Analysis + factcheck in parallel
         combined = "\n\n---\n\n".join(search_results)
-        logger.info(f"  ├─ Analysis + fact-check...")
+        logger.info("  ├─ Analysis + fact-check...")
 
         with ThreadPoolExecutor(max_workers=2) as executor:
             analysis_future = executor.submit(self._exec_analysis, combined)
@@ -227,7 +225,7 @@ class Orchestrator:
                 except Exception as e:
                     logger.error(f"  │  Fact-check error: {e}")
 
-        logger.info(f"  └─ Iteration complete")
+        logger.info("  └─ Iteration complete")
 
     def _generate_search_prompts(self) -> list[str]:
         """Generate parallel search prompts with different angles."""
@@ -287,7 +285,7 @@ class Orchestrator:
         prompt = (
             f"Research topic: {self.topic}\n\n"
             f"Claims to verify:\n" + "\n".join(recent_claims) + "\n\n"
-            f"Verify the most dubious claims."
+            "Verify the most dubious claims."
         )
         try:
             agent = create_factcheck_agent()
@@ -332,7 +330,7 @@ class Orchestrator:
         branches = branch_results
 
         # Level 2: Merge branches into root summary
-        logger.info(f"  └─ Level 2: Generating root summary...")
+        logger.info("  └─ Level 2: Generating root summary...")
         root_summary = self._generate_root(branches)
 
         return {
@@ -352,7 +350,7 @@ class Orchestrator:
                     f"Source: {e.title}\n"
                     f"URL: {e.source_url}\n"
                     f"Claims:\n" + "\n".join(f"- {c}" for c in e.extracted_claims) + "\n\n"
-                    f"Summarize this single source."
+                    "Summarize this single source."
                 )
                 futures[executor.submit(self._exec_leaf, prompt)] = e.source_url
 
@@ -387,7 +385,7 @@ class Orchestrator:
                     f"Theme: {theme_name}\n"
                     f"Main topic: {self.topic}\n\n"
                     f"Leaf summaries to merge:\n" + "\n\n".join(leaves_for_theme) + "\n\n"
-                    f"Merge these into a unified sub-topic summary."
+                    "Merge these into a unified sub-topic summary."
                 )
                 futures[executor.submit(self._exec_branch, prompt)] = (theme_name, evidence_list)
 
@@ -474,7 +472,7 @@ class Orchestrator:
 
     def _decompose_topic(self) -> None:
         """Step 0: Break topic into sub-questions using the decomposer agent."""
-        logger.info(f"  ├─ Decomposing topic into sub-questions...")
+        logger.info("  ├─ Decomposing topic into sub-questions...")
 
         graph = self.store.graph
         # Skip if questions already exist (e.g., resume mode)
@@ -508,7 +506,7 @@ class Orchestrator:
             else:
                 # Fallback: create a single broad question
                 graph.add_question(Question(text=f"What are the key aspects of {self.topic}?"))
-                logger.warning(f"  │  Decompose failed, using fallback question")
+                logger.warning("  │  Decompose failed, using fallback question")
 
         except Exception as e:
             logger.error(f"  │  Decompose error: {e}")

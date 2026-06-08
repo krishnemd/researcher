@@ -59,7 +59,7 @@ def _generate_graph_paper(topic: str, store: EvidenceStore) -> Optional[str]:
     """Generate paper from knowledge graph using outline + section writer agents."""
     from researcher.agents.outline import create_outline_agent
     from researcher.agents.section_writer import create_section_writer_agent
-    from researcher.agents.validation import parse_agent_output, OutlineOutput
+    from researcher.agents.validation import OutlineOutput, parse_agent_output
     from researcher.knowledge.gaps import detect_gaps
 
     graph = store.graph
@@ -101,7 +101,7 @@ def _generate_graph_paper(topic: str, store: EvidenceStore) -> Optional[str]:
             f"Section: {section.title}\n"
             f"Description: {section.description}\n\n"
             f"Relevant evidence:\n" + "\n".join(f"- {c}" for c in relevant_claims[:10]) + "\n\n"
-            f"Write this section."
+            "Write this section."
         )
 
         writer = create_section_writer_agent()
@@ -207,7 +207,7 @@ def _render_tree(topic: str, store: EvidenceStore, tree: dict) -> str:
             leaf_count = branch.get("leaf_count", 0)
 
             # Branch node
-            lines.append(f"<details>")
+            lines.append("<details>")
             lines.append(f"<summary>{'─' * 2} <strong>{_clean_theme(theme)}</strong> "
                          f"({leaf_count} sources)</summary>\n")
             lines.append(summary)
@@ -221,7 +221,7 @@ def _render_tree(topic: str, store: EvidenceStore, tree: dict) -> str:
 
                 for e in branch_evidence:
                     leaf_summary = leaves.get(e.source_url, "")
-                    lines.append(f"<details>")
+                    lines.append("<details>")
                     lines.append(f"<summary><code>{_confidence_badge(e.confidence_score)}</code> "
                                  f"{e.title}</summary>\n")
                     lines.append(f"🔗 [{e.source_url}]({e.source_url})\n")

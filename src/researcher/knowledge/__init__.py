@@ -1,17 +1,17 @@
 """Knowledge graph layer for structured research representation."""
 
+from researcher.knowledge.gaps import GapReport, detect_gaps
+from researcher.knowledge.graph import KnowledgeGraph
 from researcher.knowledge.schema import (
-    Source,
     Claim,
-    Question,
     Hypothesis,
+    HypothesisStatus,
+    Question,
+    QuestionStatus,
     Relationship,
     RelationType,
-    QuestionStatus,
-    HypothesisStatus,
+    Source,
 )
-from researcher.knowledge.graph import KnowledgeGraph
-from researcher.knowledge.gaps import detect_gaps, GapReport
 
 __all__ = [
     "Source",

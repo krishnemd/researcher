@@ -5,14 +5,14 @@ import os
 from typing import Optional
 
 from researcher.knowledge.schema import (
-    Source,
     Claim,
-    Question,
     Hypothesis,
+    HypothesisStatus,
+    Question,
+    QuestionStatus,
     Relationship,
     RelationType,
-    QuestionStatus,
-    HypothesisStatus,
+    Source,
 )
 
 

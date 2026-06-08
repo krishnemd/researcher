@@ -1,10 +1,10 @@
 """Schema definitions for knowledge graph nodes and edges."""
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Optional
-import uuid
 
 
 class RelationType(str, Enum):

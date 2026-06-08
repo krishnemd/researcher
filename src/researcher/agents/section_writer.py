@@ -1,6 +1,7 @@
 """Section Writer Agent — writes one section of the research paper."""
 
 from strands import Agent
+
 from researcher.config import get_model
 
 SECTION_WRITER_PROMPT = """You are a research paper section writer. You receive a section title, description, and relevant claims/evidence, and write that section in clear academic prose.

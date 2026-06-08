@@ -1,6 +1,7 @@
 """Analysis Agent - evaluates evidence quality and extracts claims."""
 
 from strands import Agent
+
 from researcher.config import get_model
 
 ANALYSIS_SYSTEM_PROMPT = """You are a research analysis agent. Your job is to evaluate evidence quality and extract key claims.

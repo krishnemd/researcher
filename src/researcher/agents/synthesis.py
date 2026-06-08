@@ -1,8 +1,8 @@
 """Synthesis Agents - fleet of summarizers that build a tree of knowledge."""
 
 from strands import Agent
-from researcher.config import get_model
 
+from researcher.config import get_model
 
 # Level 0: Leaf summarizer — condenses a single evidence item
 LEAF_PROMPT = """You are a leaf summarizer. You receive ONE piece of evidence (source + claims) and must produce a tight, factual summary.

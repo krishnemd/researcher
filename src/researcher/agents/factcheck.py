@@ -1,6 +1,7 @@
 """Fact-Check Agent - verifies claims and flags contradictions."""
 
 from strands import Agent
+
 from researcher.config import get_model
 from researcher.tools.ddg_search import ddg_search
 

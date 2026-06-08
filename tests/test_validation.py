@@ -1,12 +1,11 @@
 """Tests for agent output validation and parsing."""
 
 from researcher.agents.validation import (
-    parse_agent_output,
+    CriticOutput,
     DecomposerOutput,
     ExtractorOutput,
-    CriticOutput,
     OutlineOutput,
-    SectionOutput,
+    parse_agent_output,
 )
 
 

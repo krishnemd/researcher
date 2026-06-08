@@ -1,8 +1,9 @@
 """Web page fetching tool for Strands agents with URL dedup."""
 
 import requests
-from strands import tool
 from markdownify import markdownify as md
+from strands import tool
+
 from researcher.config import MAX_CONTENT_LENGTH
 
 # Module-level visited set shared across agent instances within a process

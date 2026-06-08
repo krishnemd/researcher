@@ -4,6 +4,7 @@ Evolves the analysis agent: focused on one source at a time with JSON output.
 """
 
 from strands import Agent
+
 from researcher.config import get_json_model
 
 EXTRACT_SYSTEM_PROMPT = """You are a research extraction agent. You receive content from ONE web source and extract factual claims.
