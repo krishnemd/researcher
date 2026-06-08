@@ -1,5 +1,10 @@
 # Researcher v2 — Redesign Plan
 
+Specification governance update (2026-06-08):
+- Canonical behavior contract now lives in `SPECIFICATION.md`.
+- Keep this file focused on implementation sequencing and execution status.
+- Any behavior change must update tests and `SPECIFICATION.md` together.
+
 > Read each item. Tick `[x]` to lock in. Unticked items are open for discussion.
 
 ---

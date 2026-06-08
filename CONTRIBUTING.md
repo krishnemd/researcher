@@ -16,6 +16,7 @@ pip install -e .[dev]
 - Keep changes focused and minimal.
 - Preserve current public behavior unless intentionally changing it.
 - Add or update tests for behavior changes.
+- If behavior changes, update `SPECIFICATION.md` in the same change.
 - Prefer clear, explicit error handling over silent fallbacks.
 
 ## Running Quality Checks
@@ -36,6 +37,7 @@ ruff check .
 - [ ] Tests pass locally
 - [ ] Lint checks pass locally
 - [ ] Documentation updated for user-visible changes
+- [ ] `SPECIFICATION.md` updated for behavior/contract changes
 - [ ] New behavior is covered by tests
 - [ ] No unrelated refactors included
 

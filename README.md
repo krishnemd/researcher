@@ -2,6 +2,8 @@
 
 A time-budgeted multi-agent research system that runs local LLM orchestration with Strands Agents and Ollama. It thinks like a PhD student: decompose → hypothesize → search → extract → critique → repeat.
 
+Canonical behavior/spec reference: `SPECIFICATION.md`.
+
 It performs two phases:
 - **Phase 1** (time-bounded): PhD-style cognitive loop — question-driven search, structured extraction, gap detection
 - **Phase 2** (unbounded): Graph-driven synthesis into a structured research paper + knowledge graph export
@@ -115,8 +117,12 @@ researcher --topic "benefits of exercise" --time 10m --output ./output
 
 - CLI-first workflow
 - Time-budgeted iterative evidence collection
+- Two-phase execution model (research loop + synthesis)
+- Interactive and one-shot modes
+- Resume support from prior output state
 - URL de-duplication during crawling
 - Structured evidence persistence in JSON
+- Knowledge graph export with node/edge metadata
 - Tree-based synthesis output with collapsible sections
 
 ## Project Structure
@@ -192,7 +198,9 @@ ruff check . --fix
 ## Output Artifacts
 
 - `output/evidence.json`: collected evidence, gaps, and visited URLs
+- `output/graph_<topic>_<timestamp>.json`: knowledge graph export
 - `output/research_<topic>_<timestamp>.md`: generated report
+- `output/run_<timestamp>.json`: run metadata
 
 ## Troubleshooting
 
