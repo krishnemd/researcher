@@ -76,6 +76,7 @@ class EvidenceStore:
                 confidence=evidence.confidence_score,
             ))
 
+        self.graph._persist()
         self._persist()
 
     def add_gap(self, gap: str) -> None:

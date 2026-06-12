@@ -14,19 +14,26 @@ from typing import Optional
 from researcher.agents.analysis import create_analysis_agent
 from researcher.agents.critic import create_critic_agent
 from researcher.agents.decompose import create_decompose_agent
+from researcher.agents.extract import create_extract_agent
 from researcher.agents.factcheck import create_factcheck_agent
 from researcher.agents.search import create_search_agent
 from researcher.agents.synthesis import create_branch_agent, create_leaf_agent, create_root_agent
 from researcher.agents.validation import (
     CriticOutput,
     DecomposerOutput,
+    ExtractorOutput,
     parse_agent_output,
 )
-from researcher.config import SHUTDOWN_THRESHOLD
+from researcher.config import MODEL_ID, SHUTDOWN_THRESHOLD
 from researcher.evidence import Evidence, EvidenceStore
 from researcher.knowledge.export import export_graph_json
 from researcher.knowledge.gaps import detect_gaps
-from researcher.knowledge.schema import Hypothesis, Question
+from researcher.knowledge.schema import (
+    Hypothesis,
+    Question,
+    Relationship,
+    RelationType,
+)
 from researcher.paper import generate_paper
 from researcher.tools.web_fetch import set_visited_urls
 
@@ -202,22 +209,20 @@ class Orchestrator:
         if self.should_stop_searching():
             return
 
-        # Analysis + factcheck in parallel
+        # Extraction + factcheck in parallel
         combined = "\n\n---\n\n".join(search_results)
-        logger.info("  ├─ Analysis + fact-check...")
+        logger.info("  ├─ Extraction + fact-check...")
 
         with ThreadPoolExecutor(max_workers=2) as executor:
-            analysis_future = executor.submit(self._exec_analysis, combined)
+            extract_future = executor.submit(self._exec_extract_and_store, combined)
             factcheck_future = None
             if self.store.evidence and self.iteration > 1:
-                factcheck_future = executor.submit(self._exec_factcheck)
+                factcheck_future = executor.submit(self._exec_factcheck_and_apply)
 
             try:
-                analysis_text = analysis_future.result()
-                if analysis_text:
-                    self._parse_analysis(analysis_text)
+                extract_future.result()
             except Exception as e:
-                logger.error(f"  │  Analysis error: {e}")
+                logger.error(f"  │  Extraction error: {e}")
 
             if factcheck_future:
                 try:
@@ -262,7 +267,174 @@ class Orchestrator:
             logger.error(f"Search agent error: {e}")
             return ""
 
+    def _exec_extract_and_store(self, search_results: str) -> None:
+        """Run the extractor agent over search results and add findings to the graph/store.
+
+        Tries the structured extractor first (JSON output + Pydantic validation).
+        Falls back to the legacy analysis agent + regex parser if extraction fails.
+        """
+        # Split into individual source blocks if the search agent gave us multiple
+        # (separated by the "---" divider the orchestrator uses when joining results)
+        source_blocks = [b.strip() for b in search_results.split("\n\n---\n\n") if b.strip()]
+
+        any_parsed = False
+        for block in source_blocks:
+            prompt = (
+                f"Research topic: {self.topic}\n\n"
+                f"Source content:\n{block}\n\n"
+                f"Extract all factual claims from this source."
+            )
+            try:
+                agent = create_extract_agent()
+                raw = str(agent(prompt))
+                result = parse_agent_output(raw, ExtractorOutput)
+
+                if result and result.claims:
+                    url = result.source_url or f"unknown-{len(self.store.evidence)}"
+                    title = result.source_title or url
+
+                    # Add evidence to store (syncs to graph automatically)
+                    evidence = Evidence(
+                        source_url=url,
+                        title=title,
+                        content_snippet="",
+                        extracted_claims=[c.text for c in result.claims],
+                        confidence_score=sum(c.confidence for c in result.claims) / len(result.claims),
+                        search_query=self.topic,
+                    )
+                    self.store.add(evidence)
+                    logger.info(f"  │  + {title[:60]} ({len(result.claims)} claims via extractor)")
+
+                    # Wire relationships from extractor output into the graph
+                    self._apply_extractor_relationships(result)
+
+                    # If this source answers a question, mark it resolved
+                    if result.answers_question:
+                        graph = self.store.graph
+                        for q in graph.get_open_questions():
+                            source = graph.get_source_by_url(url)
+                            if source:
+                                claim_ids = [
+                                    c.id for c in graph.claims.values()
+                                    if c.source_id == source.id
+                                ]
+                                if claim_ids:
+                                    graph.add_relationship(Relationship(
+                                        source_id=claim_ids[0],
+                                        target_id=q.id,
+                                        relation_type=RelationType.ANSWERS,
+                                    ))
+                                    graph.resolve_question(q.id)
+                                    break  # Answer one open question per source
+
+                    any_parsed = True
+                else:
+                    logger.warning("  │  Extractor returned no claims for block, trying fallback")
+            except Exception as e:
+                logger.error(f"  │  Extractor error on block: {e}")
+
+        # Fallback: if extractor failed on all blocks, use legacy analysis agent
+        if not any_parsed:
+            logger.warning("  │  Extractor failed entirely — falling back to analysis agent")
+            try:
+                analysis_text = self._exec_analysis(search_results)
+                if analysis_text:
+                    self._parse_analysis(analysis_text)
+            except Exception as e:
+                logger.error(f"  │  Analysis fallback error: {e}")
+
+    def _apply_extractor_relationships(self, result: ExtractorOutput) -> None:
+        """Apply claim relationships from an ExtractorOutput into the knowledge graph."""
+        graph = self.store.graph
+        source = graph.get_source_by_url(result.source_url or "")
+        if not source:
+            return
+
+        # Map claim index → graph Claim id
+        claim_ids = [c.id for c in graph.claims.values() if c.source_id == source.id]
+
+        for rel in result.relationships:
+            if rel.claim_index >= len(claim_ids):
+                continue
+            src_claim_id = claim_ids[rel.claim_index]
+
+            # Try to find a matching existing claim by text similarity
+            target_claim = next(
+                (c for c in graph.claims.values() if rel.relates_to.lower() in c.text.lower()),
+                None,
+            )
+            if not target_claim:
+                continue
+
+            try:
+                rel_type = RelationType(rel.relation_type)
+            except ValueError:
+                rel_type = RelationType.SUPPORTS
+
+            graph.add_relationship(Relationship(
+                source_id=src_claim_id,
+                target_id=target_claim.id,
+                relation_type=rel_type,
+            ))
+
+    def _exec_factcheck_and_apply(self) -> None:
+        """Run fact-check agent and apply confidence adjustments to the graph."""
+        recent_claims = []
+        for e in self.store.evidence[-5:]:
+            for claim in e.extracted_claims:
+                recent_claims.append(f"- {claim} (source: {e.source_url})")
+        if not recent_claims:
+            return
+
+        prompt = (
+            f"Research topic: {self.topic}\n\n"
+            f"Claims to verify:\n" + "\n".join(recent_claims) + "\n\n"
+            "Verify the most dubious claims."
+        )
+        try:
+            agent = create_factcheck_agent()
+            factcheck_text = str(agent(prompt))
+            if not factcheck_text:
+                return
+
+            # Apply confidence adjustments: parse VERIFIED_CLAIMS blocks
+            # Pattern: adjusted_confidence: <float>  reasoning: <text>
+            graph = self.store.graph
+            for match in re.finditer(
+                r"claim:\s*(.+?)\s*\n\s*original_confidence:\s*([\d.]+)\s*\n\s*adjusted_confidence:\s*([\d.]+)",
+                factcheck_text,
+                re.MULTILINE,
+            ):
+                claim_text, _, adjusted = match.groups()
+                adjusted_score = min(1.0, max(0.0, float(adjusted)))
+                # Find the closest matching claim in the graph and update it
+                for claim in graph.claims.values():
+                    if claim_text.strip().lower() in claim.text.lower():
+                        old = claim.confidence
+                        claim.confidence = adjusted_score
+                        logger.info(f"  │  ✓ Factcheck adjusted [{old:.2f}→{adjusted_score:.2f}] {claim.text[:60]}")
+                        break
+
+            # Flag flagged claims — lower their confidence
+            for match in re.finditer(
+                r"FLAGGED_CLAIMS:.*?claim:\s*(.+?)\s*\n\s*issue:\s*(.+?)(?=\n\n|\Z)",
+                factcheck_text,
+                re.DOTALL,
+            ):
+                claim_text, issue = match.groups()
+                for claim in graph.claims.values():
+                    if claim_text.strip().lower() in claim.text.lower():
+                        claim.confidence = max(0.0, claim.confidence - 0.2)
+                        logger.info(f"  │  ⚠ Factcheck flagged: {claim.text[:60]} ({issue.strip()[:40]})")
+                        break
+
+            graph._persist()
+
+        except Exception as e:
+            logger.error(f"Fact-check error: {e}")
+
     def _exec_analysis(self, search_results: str) -> str:
+        """Legacy analysis agent — kept as fallback for unstructured output."""
         prompt = (
             f"Research topic: {self.topic}\n\n"
             f"Raw search results:\n{search_results}\n\n"
@@ -273,25 +445,6 @@ class Orchestrator:
             return str(agent(prompt))
         except Exception as e:
             logger.error(f"Analysis error: {e}")
-            return ""
-
-    def _exec_factcheck(self) -> str:
-        recent_claims = []
-        for e in self.store.evidence[-5:]:
-            for claim in e.extracted_claims:
-                recent_claims.append(f"- {claim} (source: {e.source_url})")
-        if not recent_claims:
-            return ""
-        prompt = (
-            f"Research topic: {self.topic}\n\n"
-            f"Claims to verify:\n" + "\n".join(recent_claims) + "\n\n"
-            "Verify the most dubious claims."
-        )
-        try:
-            agent = create_factcheck_agent()
-            return str(agent(prompt))
-        except Exception as e:
-            logger.error(f"Fact-check error: {e}")
             return ""
 
     # ═══════════════════════════════════════════════════════════════
@@ -661,7 +814,7 @@ class Orchestrator:
 
         metadata = {
             "topic": self.topic,
-            "model": "gemma4:e2b",
+            "model": MODEL_ID,
             "time_budget_seconds": self.time_budget,
             "actual_time_seconds": round(self.elapsed, 1),
             "iterations": self.iteration,
@@ -749,37 +902,3 @@ class Orchestrator:
             graph.add_question(Question(text=f"What specifically about {deeper_topic}?"))
             return True
         return None
-
-    # ═══════════════════════════════════════════════════════════════
-    # Run Metadata
-    # ═══════════════════════════════════════════════════════════════
-
-    def _save_run_metadata(self) -> str:
-        """Save run metadata to a JSON file."""
-        import json
-        from datetime import datetime
-
-        metadata = {
-            "topic": self.topic,
-            "model": "gemma4:e2b",
-            "time_budget_seconds": self.time_budget,
-            "actual_time_seconds": round(self.elapsed, 1),
-            "iterations": self.iteration,
-            "sources_collected": len(self.store.evidence),
-            "claims_extracted": len(self.store.get_all_claims()),
-            "graph_nodes": self.store.graph.node_count,
-            "graph_edges": self.store.graph.edge_count,
-            "open_questions": len(self.store.graph.get_open_questions()),
-            "interactive_mode": self.interactive,
-            "timestamp": datetime.now().isoformat(),
-        }
-
-        filepath = os.path.join(
-            self.output_dir,
-            f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-        )
-        os.makedirs(self.output_dir, exist_ok=True)
-        with open(filepath, "w") as f:
-            json.dump(metadata, f, indent=2)
-
-        return filepath

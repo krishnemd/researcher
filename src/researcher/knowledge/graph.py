@@ -38,13 +38,11 @@ class KnowledgeGraph:
         if existing:
             return existing
         self.sources[source.id] = source
-        self._persist()
         return source
 
     def add_claim(self, claim: Claim) -> Claim:
         """Add a claim node."""
         self.claims[claim.id] = claim
-        self._persist()
         return claim
 
     def add_question(self, question: Question) -> Question:
@@ -56,7 +54,6 @@ class KnowledgeGraph:
     def add_hypothesis(self, hypothesis: Hypothesis) -> Hypothesis:
         """Add a hypothesis."""
         self.hypotheses[hypothesis.id] = hypothesis
-        self._persist()
         return hypothesis
 
     def add_relationship(self, rel: Relationship) -> Relationship:

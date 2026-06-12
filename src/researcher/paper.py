@@ -11,7 +11,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Optional
 
+from researcher.agents.outline import create_outline_agent
+from researcher.agents.section_writer import create_section_writer_agent
+from researcher.agents.validation import OutlineOutput, parse_agent_output
 from researcher.evidence import EvidenceStore
+from researcher.knowledge.gaps import detect_gaps
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +61,6 @@ def _save_paper(content: str, topic: str, output_dir: str) -> str:
 
 def _generate_graph_paper(topic: str, store: EvidenceStore) -> Optional[str]:
     """Generate paper from knowledge graph using outline + section writer agents."""
-    from researcher.agents.outline import create_outline_agent
-    from researcher.agents.section_writer import create_section_writer_agent
-    from researcher.agents.validation import OutlineOutput, parse_agent_output
-    from researcher.knowledge.gaps import detect_gaps
-
     graph = store.graph
     gap_report = detect_gaps(graph)
 
